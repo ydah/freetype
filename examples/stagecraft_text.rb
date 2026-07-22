@@ -7,7 +7,16 @@
 # the FreeType/HarfBuzz side remains unchanged.
 
 require "freetype/harfbuzz"
-require "stagecraft"
+
+begin
+  require "stagecraft"
+rescue LoadError
+  abort <<~MESSAGE
+    The Stagecraft Ruby package/API is not publicly available yet.
+    This example currently documents the StagecraftTextRenderer adapter contract;
+    validate and update it against the real API once that package is released.
+  MESSAGE
+end
 
 class StagecraftTextRenderer
   def initialize(stage, atlas, packed)
