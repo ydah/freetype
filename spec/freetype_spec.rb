@@ -3,6 +3,11 @@
 require "digest"
 
 RSpec.describe FreeType do
+  BITMAP_GOLDENS = {
+    [2, 11, 1] => "edd2ada3d8ca95a427fa9a29364f58497fffed650911deb06e60b528456dc730",
+    [2, 14, 3] => "7fa39a3d97797107287169a3ae35e86f584a5bf63bdea39eb0f5d46aabf73fd4"
+  }.freeze
+
   let(:font_path) { File.expand_path("fixtures/ABeeZee-Regular.ttf", __dir__) }
 
   it "exposes a version and the legacy constant alias" do
@@ -36,6 +41,7 @@ RSpec.describe FreeType do
 
       expect(version).to match([Integer, Integer, Integer])
       expect(version.first).to be >= 2
+      expect(version.join(".")).to eq(ENV.fetch("EXPECTED_FREETYPE_VERSION")) if ENV["EXPECTED_FREETYPE_VERSION"]
       expect(library).to be_closed
     end
 
@@ -101,11 +107,12 @@ RSpec.describe FreeType do
     end
 
     it "matches the bitmap golden for the installed FreeType release" do
-      skip "golden is recorded for FreeType 2.14" unless @library.version.take(2) == [2, 14]
+      golden = BITMAP_GOLDENS[@library.version]
+      skip "no bitmap golden for FreeType #{@library.version.join(".")}" unless golden
 
       @face.set_pixel_size(32)
       digest = Digest::SHA256.hexdigest(FreeType::Image.data(@face.glyph("A").bitmap))
-      expect(digest).to eq("7fa39a3d97797107287169a3ae35e86f584a5bf63bdea39eb0f5d46aabf73fd4")
+      expect(digest).to eq(golden)
     end
 
     it "uses glyph IDs for kerning and simple line advance" do

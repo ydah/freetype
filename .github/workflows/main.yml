@@ -11,18 +11,35 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  compatibility:
     runs-on: ubuntu-latest
     name: Ruby ${{ matrix.ruby }}
+    continue-on-error: ${{ matrix.experimental }}
+    env:
+      BUNDLE_WITHOUT: gpu
     strategy:
+      fail-fast: false
       matrix:
-        ruby:
-          - '4.0'
+        include:
+          - ruby: '3.2'
+            experimental: false
+          - ruby: '3.3'
+            experimental: false
+          - ruby: '3.4'
+            experimental: false
+          - ruby: '4.0'
+            experimental: false
+          - ruby: head
+            experimental: true
 
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libfreetype6-dev libharfbuzz-dev pkg-config
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
@@ -30,3 +47,96 @@ jobs:
           bundler-cache: true
       - name: Run the default task
         run: bundle exec rake
+
+  freetype:
+    runs-on: ubuntu-latest
+    name: FreeType ${{ matrix.freetype }}
+    env:
+      BUNDLE_WITHOUT: gpu
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - freetype: 2.11.1
+            sha256: 3333ae7cfda88429c97a7ae63b7d01ab398076c3b67182e960e5684050f2c5c8
+          - freetype: 2.14.3
+            sha256: 36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential cmake libharfbuzz-dev pkg-config zlib1g-dev
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '4.0'
+          bundler-cache: true
+      - name: Build FreeType ${{ matrix.freetype }}
+        env:
+          FREETYPE_VERSION: ${{ matrix.freetype }}
+          FREETYPE_SHA256: ${{ matrix.sha256 }}
+        run: |
+          archive="$RUNNER_TEMP/freetype-$FREETYPE_VERSION.tar.xz"
+          source_dir="$RUNNER_TEMP/freetype-$FREETYPE_VERSION"
+          prefix="$RUNNER_TEMP/freetype-install-$FREETYPE_VERSION"
+
+          curl --fail --silent --show-error --location \
+            "https://download-mirror.savannah.gnu.org/releases/freetype/freetype-$FREETYPE_VERSION.tar.xz" \
+            --output "$archive"
+          echo "$FREETYPE_SHA256  $archive" | sha256sum --check --strict
+          tar --extract --xz --file "$archive" --directory "$RUNNER_TEMP"
+
+          cmake \
+            -S "$source_dir" \
+            -B "$source_dir/build" \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$prefix" \
+            -DBUILD_SHARED_LIBS=ON \
+            -DFT_DISABLE_HARFBUZZ=TRUE \
+            -DFT_DISABLE_BZIP2=TRUE \
+            -DFT_DISABLE_BROTLI=TRUE \
+            -DFT_DISABLE_PNG=TRUE \
+            -DFT_REQUIRE_ZLIB=TRUE
+          cmake --build "$source_dir/build" --parallel 2 --target install
+
+          {
+            echo "EXPECTED_FREETYPE_VERSION=$FREETYPE_VERSION"
+            echo "FREETYPE_LIBRARY=$prefix/lib/libfreetype.so.6"
+            echo "PKG_CONFIG_PATH=$prefix/lib/pkgconfig"
+            echo "LD_LIBRARY_PATH=$prefix/lib"
+          } >> "$GITHUB_ENV"
+      - name: Run tests against FreeType ${{ matrix.freetype }}
+        run: bundle exec rake spec
+
+  gpu:
+    runs-on: ubuntu-latest
+    name: Rugl GPU smoke
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install OpenGL dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libfreetype6-dev \
+            libgl1-mesa-dri \
+            libglfw3 \
+            libglx-mesa0 \
+            libharfbuzz-dev \
+            pkg-config \
+            xauth \
+            xvfb
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '4.0'
+          bundler-cache: true
+      - name: Render and read back the Rugl example
+        run: xvfb-run --auto-servernum env LIBGL_ALWAYS_SOFTWARE=1 FREETYPE_GPU_TEST=1 bundle exec rspec --tag gpu

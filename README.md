@@ -11,6 +11,7 @@ rasterization half of a shape → rasterize → atlas → GPU text pipeline.
 - The `ffi` gem
 - Optional: `texel` for `Texel::Image` bitmap values
 - Optional: `harfbuzz-ruby` for shaped text meshes
+- Optional: `rugl` plus GLFW/OpenGL for the GPU example
 
 Install FreeType with the platform package manager, then add the gem:
 
@@ -120,6 +121,21 @@ do not emit a quad, but their HarfBuzz advances still move the cursor. See
 [`examples/rugl_text.rb`](examples/rugl_text.rb) and
 [`examples/stagecraft_text.rb`](examples/stagecraft_text.rb) for GPU handoff.
 
+The Rugl example opens a real GLFW/OpenGL window. Its one-frame smoke mode
+renders the SDF text, reads back the physical framebuffer (including HiDPI
+framebuffers), and fails if no text pixels were produced:
+
+```sh
+FREETYPE_RUGL_SMOKE=1 bundle exec ruby \
+  examples/rugl_text.rb spec/fixtures/ABeeZee-Regular.ttf "GPU smoke"
+```
+
+The Stagecraft example remains an adapter contract because no public
+Stagecraft Ruby package/API is available. Its syntax and adapter boundary are
+tested; the example exits with an explicit message instead of claiming an
+unverified integration. It must be validated and adjusted when the real API is
+published.
+
 ## Threading and lifetime
 
 A FreeType library must not be shared by concurrent threads. Use one
@@ -147,7 +163,11 @@ bundle exec rake spec
 
 The test suite includes an OFL font, bitmap goldens, pitch and fixed-point
 tests, SDF coverage, atlas geometry checks, and a compiled ABI probe that
-compares every field offset and total size of the public FreeType structs.
+compares every field offset and total size of the public FreeType structs. CI
+tests Ruby 3.2, 3.3, 3.4, 4.0, and head; builds FreeType 2.11.1 and 2.14.3 from
+checksum-verified official sources; exercises real HarfBuzz and Texel gems;
+and runs the Rugl readback test with Mesa under Xvfb. Ruby head is an
+experimental compatibility signal and does not block stable releases.
 
 ## License
 
