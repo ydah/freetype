@@ -126,6 +126,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes \
             libfreetype6-dev \
+            libgl-dev \
             libgl1-mesa-dri \
             libglfw3 \
             libglx-mesa0 \
