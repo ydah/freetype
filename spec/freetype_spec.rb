@@ -22,6 +22,8 @@ RSpec.describe FreeType do
     expect(error.code).to eq(0x01)
     expect(error.name).to eq(:Cannot_Open_Resource)
     expect(error.message).to include("FT_New_Face", "Cannot_Open_Resource")
+    expect(described_class::Native::FT_Err_Cannot_Open_Resource).to eq(0x01)
+    expect(described_class::Native::ERROR_CODES[:Cannot_Open_Resource]).to eq(0x01)
   end
 
   describe FreeType::Library do

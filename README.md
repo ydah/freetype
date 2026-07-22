@@ -1,39 +1,155 @@
-# Freetype
+# freetype
 
-TODO: Delete this and the text below, and describe your gem
+Ruby FFI bindings for FreeType 2.11 and newer. The public API converts all
+FreeType 26.6 and 16.16 fixed-point values to pixel `Float`s and provides the
+rasterization half of a shape → rasterize → atlas → GPU text pipeline.
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/freetype`. To experiment with that code, run `bin/console` for an interactive prompt.
+## Requirements
 
-## Installation
+- Ruby 3.2 or newer
+- A system FreeType library (2.11 or newer for SDF rendering)
+- The `ffi` gem
+- Optional: `texel` for `Texel::Image` bitmap values
+- Optional: `harfbuzz-ruby` for shaped text meshes
 
-TODO: Replace `UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG` with your gem name right after releasing it to RubyGems.org. Please do not do it earlier due to security reasons. Alternatively, replace this section with instructions to install your gem from git if you don't plan to release to RubyGems.org.
+Install FreeType with the platform package manager, then add the gem:
 
-Install the gem and add to the application's Gemfile by executing:
-
-```bash
-bundle add UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
+```sh
+bundle add freetype
 ```
 
-If bundler is not being used to manage dependencies, install the gem by executing:
+The native loader searches `freetype`, `libfreetype.so.6`, and
+`libfreetype.6.dylib`. Set `FREETYPE_LIBRARY` to an explicit shared-library
+path when the system loader cannot find it.
 
-```bash
-gem install UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
+## Faces and glyphs
+
+```ruby
+require "freetype"
+
+FreeType.open do |library|
+  library.face("NotoSansJP-Regular.ttf") do |face|
+    face.set_pixel_size(32)
+
+    p face.family_name
+    p face.style_name
+    p face.metrics # ascender, descender, line_height, max_advance in pixels
+
+    glyph = face.glyph("あ")
+    glyph = face.glyph_by_id(1234) # use this for HarfBuzz output
+    p [glyph.width, glyph.height, glyph.bearing_x, glyph.bearing_y, glyph.advance]
+  end
+end
 ```
 
-## Usage
+`Library#face` also accepts font bytes. A memory face retains its own frozen
+copy for the full face lifetime because FreeType does not copy the source:
 
-TODO: Write usage instructions here
+```ruby
+font_bytes = File.binread("font.ttf")
+face = library.face(font_bytes)
+```
+
+Use `set_char_size(pt: 12, dpi: 96)` for point sizes. `Face#kerning` accepts
+two glyph IDs. `Face#line_advance` is a small unshaped helper for simple text;
+use HarfBuzz for script shaping, bidi text, and production layout.
+
+The normal bitmap is an immutable `Texel::Image` with one `:u8` channel and
+`:linear` color space when Texel is installed. Otherwise it is an immutable
+`{ width:, height:, data: }` hash. Mono bitmaps are expanded to byte values
+0 and 255, and all row pitch padding and bottom-up storage are normalized.
+
+## SDF and atlases
+
+```ruby
+glyph = face.glyph("A", mode: :sdf, spread: 8)
+
+atlas = FreeType::Atlas.build(
+  face,
+  chars: FreeType::Charset::ASCII + "こんにちは世界".chars,
+  size: 48,
+  mode: :sdf,
+  padding: 2,
+  max_width: 1024
+)
+
+atlas.image   # one-channel u8 image; both dimensions are powers of two
+atlas.entries # glyph ID => normalized UV and pixel metrics
+atlas.metrics
+atlas.missing
+```
+
+Pass `glyph_ids:` instead of `chars:` when shaping has already produced glyph
+IDs. `Charset` includes `ASCII`, `LATIN1`, `KANA`, and the 2,136-character
+`JOYO_KANJI` set. SDF rendering raises `FreeType::UnsupportedError` on
+FreeType older than 2.11.
+
+## HarfBuzz text meshes
+
+Load the optional integration and configure the HarfBuzz font at 26.6 pixel
+scale. This makes its advances and offsets use the same coordinate system as
+the FreeType atlas:
+
+```ruby
+require "freetype/harfbuzz"
+
+size = 48
+hb_font.scale = [size * 64, size * 64]
+hb_font.ppem = [size, size]
+
+buffer = HarfBuzz::Buffer.new
+buffer.add_utf8("グラフィックス強化中")
+buffer.guess_segment_properties
+HarfBuzz.shape(hb_font, buffer)
+
+atlas = FreeType::Atlas.build(
+  face,
+  glyph_ids: buffer.glyph_infos.map(&:glyph_id),
+  size: size,
+  mode: :sdf
+)
+run = FreeType::TextRun.layout(buffer, atlas)
+packed = run.to_packed
+
+packed[:vertices] # little-endian f32 (x, y, u, v), four vertices per quad
+packed[:indices]  # little-endian u16, six indices per quad
+```
+
+Quads use a baseline origin with y increasing downward. Missing atlas entries
+do not emit a quad, but their HarfBuzz advances still move the cursor. See
+[`examples/rugl_text.rb`](examples/rugl_text.rb) and
+[`examples/stagecraft_text.rb`](examples/stagecraft_text.rb) for GPU handoff.
+
+## Threading and lifetime
+
+A FreeType library must not be shared by concurrent threads. Use one
+`FreeType::Library` per thread, or use `FreeType::Pool`, which keeps a
+thread-local library and face cache:
+
+```ruby
+pool = FreeType::Pool.new
+face = pool.face("font.ttf") # cached only in the current thread
+# use pool independently from worker threads
+pool.close
+```
+
+Closing a library first closes every live face. Closing is idempotent. A
+glyph bitmap is copied immediately because the native slot is overwritten by
+the next glyph load. `Glyph#raw` intentionally exposes that transient native
+slot for callers that need native fields.
 
 ## Development
 
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake spec` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
+```sh
+bundle install
+bundle exec rake spec
+```
 
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`, which will create a git tag for the version, push git commits and the created tag, and push the `.gem` file to [rubygems.org](https://rubygems.org).
-
-## Contributing
-
-Bug reports and pull requests are welcome on GitHub at https://github.com/[USERNAME]/freetype.
+The test suite includes an OFL font, bitmap goldens, pitch and fixed-point
+tests, SDF coverage, atlas geometry checks, and a compiled ABI probe that
+compares every field offset and total size of the public FreeType structs.
 
 ## License
 
-The gem is available as open source under the terms of the [MIT License](https://opensource.org/licenses/MIT).
+The gem is available under the MIT License. The bundled ABeeZee test font is
+distributed under the SIL Open Font License; see `spec/fixtures/OFL.txt`.

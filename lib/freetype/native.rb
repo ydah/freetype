@@ -7,6 +7,7 @@ module FreeType
     extend FFI::Library
 
     library_override = ENV["FREETYPE_LIBRARY"]
+    library_override = nil if library_override&.empty?
     candidates = [library_override, "freetype", "libfreetype.so.6", "libfreetype.6.dylib"].compact
     ffi_lib candidates
 
@@ -65,6 +66,12 @@ module FreeType
       0xB7 => :Missing_Bbx_Field, 0xB8 => :Bbx_Too_Big, 0xB9 => :Corrupted_Font_Header,
       0xBA => :Corrupted_Font_Glyphs
     }.freeze
+    ERROR_CODES = ERROR_NAMES.invert.freeze
+    FT_ERRORS = enum(
+      :ft_error,
+      ERROR_NAMES.flat_map { |code, name| [:"FT_Err_#{name}", code] }
+    )
+    ERROR_NAMES.each { |code, name| const_set(:"FT_Err_#{name}", code) }
 
     require_relative "native/structs"
 

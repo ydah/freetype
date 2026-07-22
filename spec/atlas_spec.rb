@@ -31,6 +31,17 @@ RSpec.describe FreeType::Atlas do
     end
   end
 
+  it "keeps the rounded image width within a non-power-of-two maximum" do
+    FreeType.open do |library|
+      library.face(font_path) do |face|
+        atlas = described_class.build(face, chars: %w[A B C], size: 16, padding: 1, max_width: 50)
+
+        expect(image_dimension(atlas.image, :width)).to be <= 50
+        expect(power_of_two?(image_dimension(atlas.image, :width))).to be(true)
+      end
+    end
+  end
+
   def image_dimension(image, key)
     image.respond_to?(key) ? image.public_send(key) : image.fetch(key)
   end

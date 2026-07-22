@@ -62,6 +62,7 @@ module FreeType
     end
 
     def pack(glyphs, padding, max_width)
+      shelf_width = 1 << (max_width.bit_length - 1)
       x = 0
       y = 0
       shelf_height = 0
@@ -71,9 +72,11 @@ module FreeType
       glyphs.sort_by { |glyph| [-glyph.height, -glyph.width, glyph.id] }.each do |glyph|
         packed_width = glyph.width + (padding * 2)
         packed_height = glyph.height + (padding * 2)
-        raise AtlasError, "glyph #{glyph.id} is wider than max_width #{max_width}" if packed_width > max_width
+        if packed_width > shelf_width
+          raise AtlasError, "glyph #{glyph.id} is wider than max_width #{max_width} after power-of-two rounding"
+        end
 
-        if x.positive? && x + packed_width > max_width
+        if x.positive? && x + packed_width > shelf_width
           y += shelf_height
           x = 0
           shelf_height = 0
