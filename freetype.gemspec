@@ -3,7 +3,7 @@
 require_relative "lib/freetype/version"
 
 Gem::Specification.new do |spec|
-  spec.name = "freetype"
+  spec.name = "freetype-ruby"
   spec.version = FreeType::VERSION
   spec.authors = ["Yudai Takada"]
   spec.email = ["t.yudai92@gmail.com"]
